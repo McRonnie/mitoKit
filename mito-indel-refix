@@ -1,0 +1,134 @@
+#!/usr/bin/perl -w
+##Version: 0.1
+##2017-5-24
+##Author: Jingyu Lou @ Bio-X, SJTU
+##Generate mitochondrial homogeneity data from pileup file
+use 5.022;
+use Getopt::Long;
+use Data::Dumper;
+use List::Util qw/ max /;
+my $depth_threshold = 100;
+my $sensi_threshold;
+my $level = 0.01;
+#my ( $level1, $level2, $level3 ) = qw / 0.4 0.1 0.01 /;
+GetOptions(
+		   'depth|d=s' => \ $depth_threshold,
+		   'sensi|s=s' => \ $sensi_threshold,
+		   'shift' => \ my $opt_s,
+		   'debug' => \ my $debug,
+		   'level|l=s' => \ $level,
+#		   '1=s' => \ $level1,
+#		   '2=s' => \ $level2,
+#		   '3=s' => \ $level3,
+#		   'bin' => \ my $bin,
+		  );
+$sensi_threshold = $depth_threshold * 0.4 unless defined $sensi_threshold;
+my $file = shift @ARGV;
+#my $base = $1 if $file =~ m|/?([^/.]+)(?:\.[^/]*)?$|;
+my $content;
+open my $pileup_in, '<', $file;
+while ( <$pileup_in> ){
+	chomp;
+	my $line = $_;
+	next if m/^#/;
+	my @line = split /\t/, $_;
+	my $pos = $line[1];
+	$content->{$pos}->{REF} = $line[2];
+	$content->{$pos}->{Counts} = $line[3];
+	@{$content->{$pos}}{ qw/ A T G C / } = @line[4..7];
+	if ( defined $line[8] ) {
+		while( $line =~ s/([-+])(\d+)([A-Za-z]+): (\d+)// ) {
+			my ( $indel, $drift, $base, $counts ) = ( $1, $2, $3, $4 );
+			if ( $indel eq '+' ) {																			#####INSERTION
+				my $conversion = $content->{$pos}->{REF}."/".$content->{$pos}->{REF}.$base;
+				my $in_pos = $opt_s ? $pos : ( $pos + 1 );
+				for ( 1..$drift ) {
+					if ( $in_pos <=16569 ) {
+						$content->{$in_pos}->{IN}->{$_}->{substr $base,( $_ - 1 ), 1} += $counts;
+					} else {
+						$content->{$in_pos-16569}->{IN}->{$_}->{substr $base,( $_ - 1 ), 1} += $counts;
+					}
+				}
+				$content->{$pos}->{INS}->{$conversion}->{depth} = $counts;
+			}
+			else {																						    #####DELETION
+				my $del_start = $opt_s ? $pos : ( $pos + 1 );
+				my $del_end = $del_start + $drift -1;
+				for ( $del_start..$del_end ) {
+					unless ( $_ >=16570 ) {
+						$content->{$_}->{DEL} += $counts;
+					}
+					else {
+						$content->{$_-16569}->{DEL} += $counts;
+					}
+				}
+			}
+		}
+	}
+}
+close $pileup_in;
+if ( $debug ) {
+	print Dumper $content,"\n";
+	exit;
+}
+say "#Chr\tPos\tRef\tCounts\tA\tT\tG\tC\tDel";
+goto INSERTION;
+POS: foreach ( sort { $a <=> $b } keys %$content ) {
+	my $position = $content->{$_};
+	$position->{DEL} = $position->{DEL} // 0;
+	foreach ( qw/ A T G C DEL / ) {
+		$position->{depth} += $position->{$_};
+	}
+#	my $diff = $position->{depth} - $position->{Counts};
+	say "chrM\t$_\t$position->{REF}\t$position->{depth}\t$position->{A}\t$position->{T}\t$position->{G}\t$position->{C}\t$position->{DEL}";
+#	say "$_\t$diff\t$position->{DEL}" if $diff;
+}
+
+say "#Chr\tPos\tInsertion";
+
+INSERTION: foreach my $pos ( sort { $a <=> $b } keys %$content ) {
+	my $position = $content->{$pos};
+	if ( defined $position->{INS} ) {
+#		my $in_depth = 0;
+#		foreach ( keys %{$position->{IN}->{1}} ) {
+#			$in_depth += $position->{IN}->{1}->{$_};
+#		}
+#		say "chrM\t$_\t-\t-\t-\t-\t-\t-\t$in_depth";
+		my $INS_ref = $position->{INS};
+		foreach my $conversion (sort {$INS_ref->{$b}->{depth} <=> $INS_ref->{$a}->{depth}} keys $INS_ref){
+			say "chrM\t$pos\t$conversion\t$position->{INS}->{$conversion}->{depth}";
+		}
+	}
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+sub _geno_format {
+	my $bin_geno = sprintf "%b", ( shift @_ );
+	my $format;
+	next if $bin_geno == 0;
+	while ( $bin_geno =~ s/[01]{1,5}$// ) {
+		$format = defined $format ?
+			$& . ',' . $format :
+			$&;
+		}
+	return $format;
+}

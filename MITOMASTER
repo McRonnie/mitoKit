@@ -1,0 +1,21 @@
+#!/usr/bin/perl
+use 5.022;
+use LWP::UserAgent;
+use HTTP::Request::Common;
+my $file = shift @ARGV;
+my $userAgent = LWP::UserAgent->new(timeout => 3600); #an hour
+
+#fileType can be sequences or snvlist
+my $request = POST "https://mitomap.org/mitomaster/websrvc.cgi",
+    Content_Type => "multipart/form-data",
+    Content => [ file => ["$file"], fileType => "sequences", output => "detail"];
+
+my $response = $userAgent->request($request);
+print $response->error_as_HTML . "
+" if $response->is_error;
+
+if ($response->is_success) {
+     print $response->decoded_content;
+} else {
+     die $response->status_line;
+}

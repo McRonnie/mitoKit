@@ -1,0 +1,111 @@
+#!/usr/bin/perl -w
+##Version: 0.1
+##2017-5-8
+##Author: Jingyu Lou @ Bio-X, SJTU
+use 5.022;
+use Bio::Seq;
+use Bio::SeqIO;
+use File::Basename;
+use Data::Dumper;
+use Getopt::Std;
+our ( $opt_s, $opt_d );
+getopts( 'sd' );
+$opt_s = 0 unless defined $opt_s;
+my $pileup = shift;
+my ( $base, $dir ) = fileparse $pileup, qr/\.[^.]*/;
+my $seq = '';
+my $depth = 0;
+my $length = 0;
+my $content;
+###READ FROM PILEUP FILE###
+open my $PL, '<', $pileup;
+while ( <$PL> ){
+	chomp;
+	my $line = $_;
+	next if m/^#/;
+	my @line = split /\t/, $_;
+	my $pos = $line[1];
+	$content->{$pos}->{REF} = $line[2] =~ m/[ATGC]/ ? $line[2] : 'N';
+	@{$content->{$pos}}{ qw/ A T G C / } = @line[4..7];
+	if ( defined $line[8] ) {
+		while( $line =~ s/([-+])(\d+)([A-Za-z]+): (\d+)// ) {
+			my ( $indel, $drift, $base, $counts ) = ( $1, $2, $3, $4 );
+			if ( $indel eq '+' ) {
+				my $in_pos = $opt_s ? $pos : ( $pos + 1 );
+				for ( 1..$drift ) {
+					if ( $in_pos <=16569 ) {
+						$content->{$in_pos}->{IN}->{$_}->{substr $base,( $_ - 1 ), 1} += $counts;
+					} else {
+						$content->{$in_pos-16569}->{IN}->{$_}->{substr $base,( $_ - 1 ), 1} += $counts;
+					}
+				}
+			}
+			else {
+				my $del_start = $opt_s ? $pos : ( $pos + 1 );
+				my $del_end = $del_start + $drift -1;
+				for ( $del_start..$del_end ) {
+					unless ( $_ >=16570 ) {
+						$content->{$_}->{DEL} += $counts;
+					}
+					else {
+						$content->{$_-16569}->{DEL} += $counts;
+					}
+				}
+			}
+		}
+	}
+}
+close $PL;
+
+###Concatenating Fasta###
+POS: foreach ( sort { $a <=> $b } keys %$content ) {
+	my $position = $content->{$_};
+	my @base_order = sort { $position->{$b} <=> $position->{$a} } qw/ A T G C/;
+	foreach ( qw/ A T G C DEL / ) {
+		$position->{depth} += $position->{$_} // 0;
+	}
+	if ( $position->{depth} < 100 ) {
+		$seq .= $position->{REF};
+		$length += 1;
+		next POS;
+	}
+	if ( defined $position->{IN} ) {
+		foreach ( sort { $a <=> $b } keys %{$position->{IN}} ) {
+			my $in_base = $position->{IN}->{$_};
+			my $max_in_base = ( sort { $in_base->{$b} <=> $in_base->{$a} } keys %$in_base )[0];
+			if ( $in_base->{$max_in_base} >= ( $position->{$base_order[0]} / 2 ) and $in_base->{$max_in_base} >= 50 ) {
+				$seq .= $max_in_base;
+				$depth += $in_base->{$max_in_base};
+				$length += 1;
+			}
+		}
+	}
+	if ( defined $position->{DEL} and $position->{DEL} >= $position->{$base_order[0]} ) {
+		next POS;
+	}
+	if ( $position->{$base_order[0]} == $position->{$base_order[1]} ) {
+		$seq .= $position->{REF};
+	} else {
+		$seq .= $base_order[0];
+	}
+	$depth += $position->{$base_order[0]};
+	$length += 1;
+}
+$depth = sprintf "%.1f", ( $depth / $length );
+print Dumper(map { $_, $content->{ $_ } } sort { $a <=> $b } keys %$content) if $opt_d;
+
+###OUTPUT FASTA###
+my $seqin = Bio::Seq->new(
+						  -seq => $seq,
+						  -format => 'fasta',
+						  -alphabet => 'dna',
+						  -display_id => "chrM|Sample=$base",
+						  -desc => "Mean_Depth=$depth Length=$length",
+						 );
+open my $fh, '>', \ my $out;
+my $seqout = Bio::SeqIO->new(
+							 -fh => $fh,
+							 -format => 'fasta',
+							);
+$seqout->write_seq($seqin);
+print $out unless $opt_d;

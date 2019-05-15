@@ -1,0 +1,34 @@
+#!/usr/bin/perl -w
+##Version: 0.1
+##Author: Jingyu Lou @ Bio-X, SJTU
+##2017-5-14
+use 5.022;
+use Data::Dumper;
+use Getopt::Long;
+GetOptions(
+		   'debug|d' => \ my $debug,
+		  );
+my $bam = shift @ARGV;
+my @region = (
+			  { m => [ 4183, 4417 ],
+				g => [ 629353, 629587, 1 ],
+			  },
+			  { m => [ 4448, 4644 ],
+				g => [ 629618, 629814, 1 ],
+			  },
+			  { m => [ 4685, 4895 ],
+				g => [ 629855, 630065, 1 ],
+			  }
+			  );
+print "$bam\t";
+foreach ( @region ) {
+	my ( $mito, $geno ) = ( $_->{m}, $_->{g} );
+	chomp ( my $m_d = `samtools view -\@4 $bam chrM:$mito->[0]-$mito->[1] -q 20 -f 0x2 | perl -ne'print if (split)[6] eq \"=\"' | wc -l` );
+	$_->{m_d} = $m_d;
+	chomp ( my $g_d = `samtools view -\@4 $bam chr$geno->[2]:$geno->[0]-$geno->[1] -q 20 -f 0x2 | perl -ne'print if (split)[6] eq \"=\"' | wc -l` );
+	$_->{g_d} = $g_d;
+	$_->{mcn} = my $mcn = $g_d ? sprintf( "%.1f", $m_d / $g_d ) : "NA";
+	print "$m_d\t$g_d\t$mcn\t";
+}
+print "\n";
+print Dumper( @region ) if $debug;

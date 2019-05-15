@@ -1,0 +1,28 @@
+#!/usr/bin/perl -w
+##Version: 0.1
+##Author: Jingyu Lou @ Bio-X, SJTU
+use 5.022;
+open RDIN, '>>', \ my $bed;
+while ( <> ) {
+	chomp;
+	my @line = split;
+	if ( $line[1] > 16569 ) {
+		$line[1] -= 16569;
+		$line[2] -= 16569;
+		say RDIN join( "\t", @line );
+		next;
+	}
+	if ( $line[2] > 16569 ) {
+		my @line2 = @line;
+		$line2[1] = 0;
+		$line2[2] = $line[2] - 16569;
+		$line[2] = 16569;
+		say RDIN join( "\t", @line );
+		say RDIN join( "\t", @line2 );
+		next;
+	}
+	say RDIN join( "\t", @line );
+}
+close RDIN;
+open SORT, '|sortBed';
+print SORT $bed;

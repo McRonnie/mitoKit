@@ -1,0 +1,115 @@
+#!/usr/bin/perl -w
+##Version: 0.1
+##2017-5-24
+##Author: Jingyu Lou @ Bio-X, SJTU
+##Generate mitochondrial homogeneity data from pileup file
+use 5.022;
+use Getopt::Long;
+use Data::Dumper;
+use List::Util qw/ max /;
+my $depth_threshold = 100;
+my $sensi_threshold;
+my ( $level1, $level2, $level3 ) = qw / 0.4 0.1 0.01 /;
+GetOptions(
+		   'depth|d=s' => \ $depth_threshold,
+		   'sensi|s=s' => \ $sensi_threshold,
+		   'shift' => \ my $opt_s,
+		   'debug' => \ my $debug,
+		   '1=s' => \ $level1,
+		   '2=s' => \ $level2,
+		   '3=s' => \ $level3,
+		   'bin' => \ my $bin,
+		  );
+my %flag = (
+			A => 0b10000,
+			T => 0b1000,
+			G => 0b100,
+			C => 0b10,
+			DEL => 0b1,
+		   );
+$sensi_threshold = $depth_threshold / 2 unless defined $sensi_threshold;
+my $file = shift @ARGV;
+my $base = $1 if $file =~ m|/?([^/.]+)(?:\.[^/]*)?$|;
+my $content;
+open my $pileup_in, '<', $file;
+while ( <$pileup_in> ){
+	chomp;
+	my $line = $_;
+	next if m/^#/;
+	my @line = split /\t/, $_;
+	my $pos = $line[1];
+	$content->{$pos}->{REF} = $line[2] =~ m/[ATGC]/ ? $line[2] : 'N';
+	@{$content->{$pos}}{ qw/ A T G C / } = @line[4..7];
+	if ( defined $line[8] ) {
+		while( $line =~ s/([-+])(\d+)([A-Za-z]+): (\d+)// ) {
+			my ( $indel, $drift, $base, $counts ) = ( $1, $2, $3, $4 );
+			if ( $indel eq '+' ) {
+				my $in_pos = $opt_s ? $pos : ( $pos + 1 );
+				for ( 1..$drift ) {
+					if ( $in_pos <=16569 ) {
+						$content->{$in_pos}->{IN}->{$_}->{substr $base,( $_ - 1 ), 1} += $counts;
+					} else {
+						$content->{$in_pos-16569}->{IN}->{$_}->{substr $base,( $_ - 1 ), 1} += $counts;
+					}
+				}
+			}
+			else {
+				my $del_start = $opt_s ? $pos : ( $pos + 1 );
+				my $del_end = $del_start + $drift -1;
+				for ( $del_start..$del_end ) {
+					unless ( $_ >=16570 ) {
+						$content->{$_}->{DEL} += $counts;
+					}
+					else {
+						$content->{$_-16569}->{DEL} += $counts;
+					}
+				}
+			}
+		}
+	}
+}
+close $pileup_in;
+print $base;
+POS: foreach ( sort { $a <=> $b } keys %$content ) {
+	my $position = $content->{$_};
+	$position->{DEL} = $position->{DEL} // 0;
+	foreach ( qw/ A T G C DEL / ) {
+		$position->{depth} += $position->{$_};
+	}
+	my @base_order = sort { $position->{$b} <=> $position->{$a} } qw/ A T G C DEL /;
+	if ( $position->{depth} < $depth_threshold ) {
+		$position->{genotype} = 0;
+		print "\t0";
+		next POS;
+	}
+	$position->{genotype} = $flag{$base_order[0]} * ( 2 ** 15 );
+	foreach ( @base_order[1..4] ) {
+		my $current_depth = $position->{$_};
+		if ( $current_depth >= max ( $position->{depth} * $level3, $sensi_threshold ) ) {
+			$position->{genotype} += $flag{$_};
+			if ( $current_depth >= max ( $position->{depth} * $level2, $sensi_threshold ) ) {
+				$position->{genotype} += $flag{$_} * ( 2 ** 5 );
+				if ( $current_depth >= max ( $position->{depth} * $level1, $sensi_threshold ) ) {
+					$position->{genotype} += $flag{$_} * ( 2 ** 10 );
+				}
+			}
+		}
+	}
+	print "\n$_\n", Dumper $position if $debug;
+	print "\t", $bin ?
+		_geno_format( $position->{genotype} ) :
+		$position->{genotype};
+}
+print "\n";
+
+sub _geno_format {
+	my $bin_geno = sprintf "%b", ( shift @_ );
+	my $format;
+	next if $bin_geno == 0;
+	while ( $bin_geno =~ s/[01]{1,5}$// ) {
+		$format = defined $format ?
+			$& . ',' . $format :
+			$&;
+		}
+	return $format;
+}

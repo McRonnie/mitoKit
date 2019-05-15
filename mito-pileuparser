@@ -1,0 +1,47 @@
+#!/usr/bin/perl -w
+##Pileup Format Parser
+##Author: Jingyu Lou @ Bio-X
+##Version: 0.2
+##Updated: merge lines which pos more than 16569
+##2016-12-7
+
+use 5.022;
+##Input pileup format from STDIN##
+
+say "#Chr\tPos\tRef\tCounts\tA\tT\tG\tC\tIndels";
+while( <> ) {
+	my %Indels;
+	my %Base_counts = map { $_, 0 }	qw/ A T G C /;
+	my ( $chr, $pos, $ref, $Counts, $bases ) = ( split )[0..4];
+	my @dNTPs = qw/ A T G C /;
+	next unless ( defined $bases );
+
+	##count indels##
+	while( $bases =~ /[-+](\d+)/ ) {
+		$bases =~ /\Q$&\E[a-zA-Z]{$1}/;
+		my $one_indel = $&;
+		while ( $bases =~ s/\Q$one_indel\E// ) {
+			$Indels{$one_indel}++;
+		}
+	}
+
+	##transfer dot and comma to ref base and ref_reverse base##
+#	my $rev = $base_rev{$ref};
+	$bases =~ s/\./$ref/g;
+	$bases =~ s/\,/$ref/g;
+
+	##count A T C G##
+	$bases = uc $bases;
+	$bases =~ s/[^ATCG]//g;
+	foreach my $dNTP ( split //, $bases ) {
+		$Base_counts{$dNTP}++;
+	}
+	print "$chr\t$pos\t$ref\t$Counts\t$Base_counts{A}\t$Base_counts{T}\t$Base_counts{G}\t$Base_counts{C}\t";
+	foreach ( sort { $Indels{$b} <=> $Indels{$a} } keys %Indels ) {
+		print $_, ": ", $Indels{$_}, "\t"
+	}
+	print "\n";
+}
+
+
+
