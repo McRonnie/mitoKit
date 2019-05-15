@@ -1,0 +1,23 @@
+#BED file
+chrM_bed = /DATA/jylou/Database/Mito/chrM.bed
+
+#FASTA reference, consisted of Nulear Genome and Duplicated Mitochondrial Genome 
+chrM_ref = /DATA/jylou/Database/Mito/hg19_recombined/hg19_recombined.fa
+
+#Annotation table
+table_path = /DATA/jylou/Database/Mito/patho_table_20180730fixed.tab
+
+#Minimal Depth
+min_depth = 5
+
+#Heteroplasmic threshold
+hetero_threshold = 0.05
+
+#Threads used in this script
+threads = 4
+
+#nodes name
+node = BP10
+
+#picard.jar path
+picard = /home/jylou/Downloads/picard.jar
